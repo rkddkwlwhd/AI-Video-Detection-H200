@@ -1,0 +1,40 @@
+# [1] 대용량 데이터 파일 (절대 올리면 안 됨)
+*.h5
+*.hdf5
+*.mp4
+*.bak
+*.zip
+*.tar.gz
+
+# [2] 학습된 모델 가중치 (용량이 크고 보안상 제외)
+*.pth
+*.pt
+*.ckpt
+
+# [3] 파이썬 관련 캐시 및 환경 설정
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv/
+env/
+venv/
+build/
+dist/
+
+# [4] 로그 및 체크포인트
+logs/
+tensorboard/
+wandb/
+
+# [5] 운영체제 임시 파일
+.DS_Store
+.ipynb_checkpoints/
+
+# [6] 보안 및 개인정보 (절대 업로드 금지)
+cookies.txt
+*.cookie
+tokens.json
+.env
+.secrets
+secrets.py

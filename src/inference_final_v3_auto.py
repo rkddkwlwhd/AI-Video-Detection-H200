@@ -113,10 +113,10 @@ def run_detailed_inference(folder, model_path, expected_label, hard_case_root):
     print("-" * 65)
     print(f"{Color.BOLD}📊 {expected_label} 폴더 정확도: {acc:.2f}%{Color.END}")
     
-    return wrong_count := len(wrong_list), wrong_list, low_conf_list
+    return (wrong_count := len(wrong_list)), wrong_list, low_conf_list
 
 if __name__ == "__main__":
-    MODEL = "../data/processed/v100_final_model.pth"
+    MODEL = "../data/processed/h200_final_model.pth"
     HARD_CASE_PATH = "../data/raw/hard_cases"
     
     _, w_fake, l_fake = run_detailed_inference("../data/raw/fake", MODEL, "FAKE", HARD_CASE_PATH)

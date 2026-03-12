@@ -4,6 +4,8 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, Subset
 from torchvision import models, transforms
 from tqdm import tqdm
+# NumPy 2.2.6을 지우고 1.x 대의 마지막 안정 버전으로 설치합니다.
+# pip install --user "numpy<2"
 
 # ==========================================
 # ⚙️ H200 하이퍼 파라미터 & 저장 설정

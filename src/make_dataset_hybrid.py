@@ -3,6 +3,9 @@ import numpy as np
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor
 
+# 1. 사용자(user) 권한으로 headless 버전 설치 (시스템 패키지를 무시하고 새로 설치)
+# pip install --user --upgrade opencv-python-headless
+
 # [1] 경로 및 환경 설정 (OpenCV 충돌 방지 로직 유지)
 USER_SITE = os.path.expanduser("~/.local/lib/python3.10/site-packages")
 if USER_SITE not in sys.path: sys.path.insert(0, USER_SITE)

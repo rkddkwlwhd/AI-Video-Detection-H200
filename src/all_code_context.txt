@@ -1,0 +1,1564 @@
+import os
+import sys
+
+# 1. 사용자 설치 경로(~/.local) 최우선 설정
+user_site = os.path.expanduser("~/.local/lib/python3.10/site-packages")
+if user_site not in sys.path:
+    sys.path.insert(0, user_site)
+
+import yt_dlp
+
+# 경로 설정
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "..", "data", "raw")
+COOKIE_PATH = os.path.join(BASE_DIR, "cookies.txt")
+
+# [전략: 기존 코드와 동일]
+
+def download_videos(link_file, category):
+    save_path = os.path.join(DATA_DIR, category)
+    os.makedirs(save_path, exist_ok=True)
+    
+    with open(link_file, 'r') as f:
+        links = [line.strip() for line in f.readlines() if line.strip()]
+
+    total_links = len(links)
+    print(f"📦 {category} 카테고리: 총 {total_links}개의 링크를 확인했습니다.")
+
+    for idx, link in enumerate(links, start=1):
+        # 숫자를 4자리(0001, 0002...)로 변경
+        numbering = f"{idx:04d}" 
+        
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            # 파일명 맨 앞에 4자리 번호 삽입
+            'outtmpl': f'{save_path}/{numbering}_%(title)s.%(ext)s',
+            'noplaylist': True,
+            'quiet': True,
+            'cookiefile': COOKIE_PATH,
+            'js_runtime': 'deno',
+            'extractor_args': {
+                'youtube': {'player_client': ['default', '-android_sdkless']}
+            }
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # 진행 상황 출력 (예: [0001/1200])
+                print(f"🚀 [{numbering}/{total_links:04d}] 다운로드 중: {link}")
+                ydl.download([link])
+        except Exception as e:
+            # 실패하더라도 어떤 번호의 링크가 실패했는지 정확히 출력
+            print(f"❌ [{numbering}] 다운로드 실패: {e}")
+
+# [후략: 기존 실행 로직 동일]
+
+if __name__ == "__main__":
+    # 실행 로직은 동일
+    real_txt = os.path.join(BASE_DIR, "..", "links", "real_links.txt")
+    if os.path.exists(real_txt):
+        download_videos(real_txt, "real")
+
+    fake_txt = os.path.join(BASE_DIR, "..", "links", "fake_links.txt")
+    if os.path.exists(fake_txt):
+        download_videos(fake_txt, "fake")import os
+import sys
+
+# 1. 사용자 설치 경로(~/.local) 최우선 설정
+user_site = os.path.expanduser("~/.local/lib/python3.10/site-packages")
+if user_site not in sys.path:
+    sys.path.insert(0, user_site)
+
+import yt_dlp
+
+# ==========================================
+# ⚙️ 경로 설정 (실전 판별용)
+# ==========================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 중요: 판별 전 '세수'를 위해 test_raw 폴더로 먼저 모읍니다.
+DATA_DIR = os.path.join(BASE_DIR, "..", "data", "test_raw")
+COOKIE_PATH = os.path.join(BASE_DIR, "cookies.txt")
+# ==========================================
+
+def download_videos(link_file, category="new_samples"):
+    """
+    link_file: 다운로드할 링크가 담긴 txt 파일 경로
+    category: 저장될 하위 폴더 이름
+    """
+    save_path = os.path.join(DATA_DIR, category)
+    os.makedirs(save_path, exist_ok=True)
+    
+    if not os.path.exists(link_file):
+        print(f"❌ 오류: '{link_file}' 파일을 찾을 수 없습니다.")
+        return
+
+    with open(link_file, 'r') as f:
+        links = [line.strip() for line in f.readlines() if line.strip()]
+
+    total_links = len(links)
+    print(f"📦 실전 판별 대상: 총 {total_links}개의 링크를 확인했습니다.")
+
+    for idx, link in enumerate(links, start=1):
+        numbering = f"{idx:04d}" 
+        
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': f'{save_path}/test_{numbering}_%(title)s.%(ext)s', # 파일명에 test 접두사 추가
+            'noplaylist': True,
+            'quiet': True,
+            'cookiefile': COOKIE_PATH,
+            'js_runtime': 'deno',
+            'extractor_args': {
+                'youtube': {'player_client': ['default', '-android_sdkless']}
+            }
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                print(f"🚀 [{numbering}/{total_links:04d}] 신규 영상 수집 중: {link}")
+                ydl.download([link])
+        except Exception as e:
+            print(f"❌ [{numbering}] 수집 실패: {e}")
+
+if __name__ == "__main__":
+    # 판별하고 싶은 영상 링크들을 담은 파일 경로
+    # (미리 links 폴더에 test_links.txt를 만들어주세요!)
+    test_txt = os.path.join(BASE_DIR, "..", "links", "test_links.txt")
+    
+    # 실행
+    download_videos(test_txt, "unlabeled")import os
+
+# ==========================================
+BASE_DIR = "../data/raw"  # 영상이 저장된 기본 경로
+EXTENSIONS = ('.mp4', '.avi', '.mov', '.mkv') # 체크할 영상 확장자
+# ==========================================
+
+def get_dir_size(path):
+    """폴더의 전체 용량을 계산 (GB 단위)"""
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(path):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            total_size += os.path.getsize(fp)
+    return total_size / (1024**3)
+
+def check_dataset_status():
+    print("\n" + "="*40)
+    print("🚀 데이터 수집 현황 리포트")
+    print("="*40)
+    
+    total_count = 0
+    
+    # Real과 Fake 폴더 각각 순회
+    for category in ['real', 'fake']:
+        path = os.path.join(BASE_DIR, category)
+        
+        if not os.path.exists(path):
+            print(f"⚠️  경고: '{category}' 폴더가 존재하지 않습니다!")
+            continue
+            
+        # 확장자에 맞는 영상 파일 리스트 추출
+        video_files = [f for f in os.listdir(path) if f.lower().endswith(EXTENSIONS)]
+        count = len(video_files)
+        size_gb = get_dir_size(path)
+        
+        total_count += count
+        
+        print(f"📂 [{category}]")
+        print(f"   - 영상 개수: {count}개")
+        print(f"   - 폴더 용량: {size_gb:.2f} GB")
+        print("-" * 20)
+
+    print(f"✅ 총 수집 영상: {total_count}개")
+    print("="*40 + "\n")
+
+if __name__ == "__main__":
+    check_dataset_status()import sys, os
+import cv2
+import torch
+import torch.nn as nn
+import numpy as np
+from torchvision import models
+from tqdm import tqdm
+import contextlib
+
+# 1. 환경 설정 및 로그 차단
+os.environ['OPENCV_LOG_LEVEL'] = 'OFF'
+os.environ['AV_LOG_LEVEL'] = 'quiet'
+
+class Color:
+    GREEN = '\033[92m'; RED = '\033[91m'; YELLOW = '\033[93m'
+    BLUE = '\033[94m'; BOLD = '\033[1m'; END = '\033[0m'; CYAN = '\033[96m'
+
+# [모델 구조 - 97.5% 버전]
+class CNNGRUModel(nn.Module):
+    def __init__(self, num_classes=2):
+        super(CNNGRUModel, self).__init__()
+        self.backbone = models.efficientnet_b0()
+        self.feature_dim = self.backbone.classifier[1].in_features
+        self.backbone.classifier = nn.Identity()
+        self.rnn = nn.GRU(input_size=self.feature_dim, hidden_size=256, num_layers=2, batch_first=True)
+        self.fc = nn.Sequential(
+            nn.Linear(256, 128), nn.ReLU(), nn.Dropout(0.3), nn.Linear(128, num_classes)
+        )
+    def forward(self, x):
+        b, s, c, h, w = x.shape
+        x = x.view(b * s, c, h, w)
+        features = self.backbone(x)
+        features = features.view(b, s, -1)
+        _, hidden = self.rnn(features)
+        return self.fc(hidden[-1])
+
+@contextlib.contextmanager
+def suppress_stderr():
+    with open(os.devnull, "w") as devnull:
+        old_stderr = os.dup(sys.stderr.fileno())
+        os.dup2(devnull.fileno(), sys.stderr.fileno())
+        try: yield
+        finally: os.dup2(old_stderr, sys.stderr.fileno())
+
+def preprocess_video(video_path):
+    with suppress_stderr():
+        cap = cv2.VideoCapture(video_path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 0:
+            cap.release()
+            return None
+        frames = []
+        interval = max(1, total_frames // 16)
+        for i in range(16):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, i * interval)
+            ret, frame = cap.read()
+            if not ret: break
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame = cv2.resize(frame, (224, 224))
+            frames.append(frame.astype(np.float32) / 255.0)
+        cap.release()
+    if len(frames) != 16: return None
+    return torch.from_numpy(np.transpose(np.array(frames), (0, 3, 1, 2))).unsqueeze(0)
+
+def run_detailed_inference(folder, model_path, expected_label):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = CNNGRUModel().to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+
+    files = sorted([f for f in os.listdir(folder) if f.endswith('.mp4')])
+    wrong_list = []      # 틀린 영상
+    low_conf_list = []   # 맞았지만 신뢰도 낮은 영상
+    correct_count = 0
+
+    print(f"\n{Color.BOLD}{Color.CYAN}📂 분석 시작: {folder} (정답: {expected_label}){Color.END}")
+    print(f"{'파일명':<35} | {'결과':<10} | {'신뢰도'}")
+    print("-" * 65)
+
+    for f in tqdm(files, desc="Processing", leave=True):
+        input_tensor = preprocess_video(os.path.join(folder, f))
+        if input_tensor is None: continue
+
+        with torch.no_grad():
+            output = model(input_tensor.to(device))
+            prob = torch.softmax(output, dim=1)
+            conf, pred = torch.max(prob, 1)
+        
+        res_label = "REAL" if pred.item() == 0 else "FAKE"
+        score = conf.item() * 100
+        
+        is_correct = (res_label == expected_label)
+        c_code = Color.GREEN if is_correct else Color.RED
+        
+        # 결과 저장 로직
+        if not is_correct:
+            wrong_list.append((f, res_label, score))
+        elif score < 85.0:
+            low_conf_list.append((f, res_label, score))
+        
+        if is_correct: correct_count += 1
+        
+        # 실시간 출력
+        status = "" if is_correct else f"{Color.RED}[WRONG]{Color.END}"
+        if is_correct and score < 85.0: status = f"{Color.YELLOW}[LOW]{Color.END}"
+        
+        print(f"{f[:33]:<35} | {c_code}{res_label:<10}{Color.END} | {score:6.2f}% {status}")
+
+    acc = (correct_count / len(files)) * 100 if files else 0
+    print("-" * 65)
+    print(f"{Color.BOLD}📊 {expected_label} 폴더 정확도: {acc:.2f}%{Color.END}")
+    
+    return wrong_list, low_conf_list
+
+if __name__ == "__main__":
+    MODEL = "../data/processed/v100_final_model.pth"
+    
+    w_fake, l_fake = run_detailed_inference("../data/raw/fake", MODEL, "FAKE")
+    w_real, l_real = run_detailed_inference("../data/raw/real", MODEL, "REAL")
+    
+    # [최종 종합 오답 노트]
+    print(f"\n{Color.BOLD}{'='*25} 📋 최종 분석 리포트 {'='*25}{Color.END}")
+    
+    total_wrong = w_fake + w_real
+    if total_wrong:
+        print(f"\n{Color.RED}{Color.BOLD}❌ [오답 리스트] - 모델이 틀린 영상 ({len(total_wrong)}개):{Color.END}")
+        for f, res, sc in total_wrong:
+            print(f"  - {f:<35} | 판정: {res:<5} | 확신도: {sc:.2f}%")
+            
+    total_low = l_fake + l_real
+    if total_low:
+        print(f"\n{Color.YELLOW}{Color.BOLD}⚠️  [헷갈림 리스트] - 맞았으나 불안한 영상 ({len(total_low)}개):{Color.END}")
+        for f, res, sc in total_low:
+            print(f"  - {f:<35} | 판정: {res:<5} | 확신도: {sc:.2f}%")
+            
+    if not total_wrong and not total_low:
+        print(f"\n{Color.GREEN}🎉 완벽합니다! 모든 영상을 높은 신뢰도로 맞혔습니다.{Color.END}")
+    print(f"\n{Color.BOLD}{'='*70}{Color.END}")import sys, os, cv2, torch, shutil
+import torch.nn as nn
+import numpy as np
+from torchvision import models
+from tqdm import tqdm
+import contextlib
+
+# [1] 환경 설정 및 로그 차단
+os.environ['OPENCV_LOG_LEVEL'] = 'OFF'
+os.environ['AV_LOG_LEVEL'] = 'quiet'
+
+class Color:
+    GREEN = '\033[92m'; RED = '\033[91m'; YELLOW = '\033[93m'
+    BLUE = '\033[94m'; BOLD = '\033[1m'; END = '\033[0m'; CYAN = '\033[96m'
+
+# [2] 모델 구조 (기존 구조 유지)
+class CNNGRUModel(nn.Module):
+    def __init__(self, num_classes=2):
+        super(CNNGRUModel, self).__init__()
+        self.backbone = models.efficientnet_b0()
+        self.feature_dim = self.backbone.classifier[1].in_features
+        self.backbone.classifier = nn.Identity()
+        self.rnn = nn.GRU(input_size=self.feature_dim, hidden_size=256, num_layers=2, batch_first=True)
+        self.fc = nn.Sequential(
+            nn.Linear(256, 128), nn.ReLU(), nn.Dropout(0.3), nn.Linear(128, num_classes)
+        )
+    def forward(self, x):
+        b, s, c, h, w = x.shape
+        x = x.view(b * s, c, h, w)
+        features = self.backbone(x)
+        features = features.view(b, s, -1)
+        _, hidden = self.rnn(features)
+        return self.fc(hidden[-1])
+
+@contextlib.contextmanager
+def suppress_stderr():
+    with open(os.devnull, "w") as devnull:
+        old_stderr = os.dup(sys.stderr.fileno())
+        os.dup2(devnull.fileno(), sys.stderr.fileno())
+        try: yield
+        finally: os.dup2(old_stderr, sys.stderr.fileno())
+
+def preprocess_video(video_path):
+    with suppress_stderr():
+        cap = cv2.VideoCapture(video_path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 0:
+            cap.release()
+            return None
+        frames = []
+        interval = max(1, total_frames // 16)
+        for i in range(16):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, i * interval)
+            ret, frame = cap.read()
+            if not ret: break
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame = cv2.resize(frame, (224, 224))
+            frames.append(frame.astype(np.float32) / 255.0)
+        cap.release()
+    if len(frames) != 16: return None
+    return torch.from_numpy(np.transpose(np.array(frames), (0, 3, 1, 2))).unsqueeze(0)
+
+def run_detailed_inference(folder, model_path, expected_label, hard_case_root):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = CNNGRUModel().to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+
+    # 하드케이스 저장 폴더 생성
+    save_dir = os.path.join(hard_case_root, expected_label.lower())
+    os.makedirs(save_dir, exist_ok=True)
+
+    files = sorted([f for f in os.listdir(folder) if f.endswith('.mp4')])
+    wrong_list = []      # 모델이 틀린 영상
+    low_conf_list = []   # 맞았지만 신뢰도 낮은 영상
+    correct_count = 0
+
+    print(f"\n{Color.BOLD}{Color.CYAN}📂 분석 시작: {folder} (정답: {expected_label}){Color.END}")
+    print(f"{'파일명':<35} | {'결과':<10} | {'신뢰도'}")
+    print("-" * 65)
+
+    for f in tqdm(files, desc="Processing", leave=True):
+        src_path = os.path.join(folder, f)
+        input_tensor = preprocess_video(src_path)
+        if input_tensor is None: continue
+
+        with torch.no_grad():
+            output = model(input_tensor.to(device))
+            prob = torch.softmax(output, dim=1)
+            conf, pred = torch.max(prob, 1)
+        
+        res_label = "REAL" if pred.item() == 0 else "FAKE"
+        score = conf.item() * 100
+        is_correct = (res_label == expected_label)
+        
+        c_code = Color.GREEN if is_correct else Color.RED
+        status = ""
+
+        if not is_correct:
+            # 🚨 오답 시 하드케이스 폴더로 복사
+            shutil.copy2(src_path, os.path.join(save_dir, f))
+            wrong_list.append((f, res_label, score))
+            status = f"{Color.RED}[WRONG]{Color.END}"
+        elif score < 85.0:
+            low_conf_list.append((f, res_label, score))
+            status = f"{Color.YELLOW}[LOW]{Color.END}"
+        
+        if is_correct: correct_count += 1
+        
+        print(f"{f[:33]:<35} | {c_code}{res_label:<10}{Color.END} | {score:6.2f}% {status}")
+
+    acc = (correct_count / len(files)) * 100 if files else 0
+    print("-" * 65)
+    print(f"{Color.BOLD}📊 {expected_label} 폴더 정확도: {acc:.2f}%{Color.END}")
+    
+    return (wrong_count := len(wrong_list)), wrong_list, low_conf_list
+
+if __name__ == "__main__":
+    MODEL = "../data/processed/h200_final_model.pth"
+    HARD_CASE_PATH = "../data/raw/hard_cases"
+    
+    _, w_fake, l_fake = run_detailed_inference("../data/raw/fake", MODEL, "FAKE", HARD_CASE_PATH)
+    _, w_real, l_real = run_detailed_inference("../data/raw/real", MODEL, "REAL", HARD_CASE_PATH)
+    
+    # [최종 종합 오답 노트]
+    print(f"\n{Color.BOLD}{'='*25} 📋 최종 분석 리포트 {'='*25}{Color.END}")
+    
+    total_wrong = w_fake + w_real
+    if total_wrong:
+        print(f"\n{Color.RED}{Color.BOLD}❌ [오답 리스트] - 하드케이스 폴더로 복사됨 ({len(total_wrong)}개):{Color.END}")
+        for f, res, sc in total_wrong:
+            print(f"  - {f:<35} | 판정: {res:<5} | 확신도: {sc:.2f}%")
+            
+    total_low = l_fake + l_real
+    if total_low:
+        print(f"\n{Color.YELLOW}{Color.BOLD}⚠️  [헷갈림 리스트] - 맞았으나 불안한 영상 ({len(total_low)}개):{Color.END}")
+        for f, res, sc in total_low:
+            print(f"  - {f:<35} | 판정: {res:<5} | 확신도: {sc:.2f}%")
+            
+    if not total_wrong and not total_low:
+        print(f"\n{Color.GREEN}🎉 완벽합니다! 모든 영상을 높은 신뢰도로 맞혔습니다.{Color.END}")
+    
+    print(f"\n{Color.CYAN}💡 하드케이스 경로: {os.path.abspath(HARD_CASE_PATH)}{Color.END}")
+    print(f"{Color.BOLD}{'='*70}{Color.END}")import sys, os, cv2, torch, json, datetime
+import torch.nn as nn
+import numpy as np
+from torchvision import models
+from tqdm import tqdm
+
+# [1] 설정
+MODEL_PATH = "../data/processed/h200_final_model.pth"
+INPUT_DIR = "../data/test_samples"
+OUTPUT_JSON_DIR = "../data/inference_results"
+os.makedirs(OUTPUT_JSON_DIR, exist_ok=True)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# [2] 모델 구조 (기존과 동일)
+class CNNGRUModel(nn.Module):
+    def __init__(self, num_classes=2):
+        super(CNNGRUModel, self).__init__()
+        self.backbone = models.efficientnet_b0()
+        self.backbone.classifier = nn.Identity()
+        self.rnn = nn.GRU(input_size=1280, hidden_size=256, num_layers=2, batch_first=True)
+        self.fc = nn.Sequential(
+            nn.Linear(256, 128), nn.ReLU(), nn.Dropout(0.3), nn.Linear(128, num_classes)
+        )
+    def forward(self, x):
+        b, s, c, h, w = x.shape
+        x = x.view(b * s, c, h, w); features = self.backbone(x)
+        features = features.view(b, s, -1); _, hidden = self.rnn(features)
+        return self.fc(hidden[-1])
+
+# [3] 전처리 함수
+def preprocess_video(video_path):
+    cap = cv2.VideoCapture(video_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total_frames < 16: return None
+    frames = []
+    interval = total_frames // 16
+    for i in range(16):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, i * interval)
+        ret, frame = cap.read()
+        if not ret: break
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame = cv2.resize(frame, (224, 224))
+        frames.append(frame.astype(np.float32) / 255.0)
+    cap.release()
+    return torch.from_numpy(np.transpose(np.array(frames), (0, 3, 1, 2))).unsqueeze(0) if len(frames) == 16 else None
+
+# [4] JSON 리포트 생성기
+def save_json_report(filename, label, confidence):
+    report = {
+        "analysis_id": f"H200_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",
+        "filename": filename,
+        "prediction": label,
+        "confidence_score": round(confidence, 2),
+        "details": {
+            "visual_consistency": "High" if confidence > 80 else "Medium",
+            "temporal_flicker": "Low" if label == "REAL" else "Detected"
+        }
+    }
+    with open(os.path.join(OUTPUT_JSON_DIR, f"{filename}.json"), 'w', encoding='utf-8') as f:
+        json.dump(report, f, indent=4, ensure_ascii=False)
+
+# [5] 메인 실행부
+def run_inference():
+    model = CNNGRUModel().to(device)
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.eval()
+
+    files = [f for f in os.listdir(INPUT_DIR) if f.endswith('.mp4')]
+    print(f"\n🚀 실전 판별 시작 ({len(files)}개 영상)")
+
+    for f in tqdm(files):
+        video_path = os.path.join(INPUT_DIR, f)
+        input_tensor = preprocess_video(video_path)
+        if input_tensor is None: continue
+
+        with torch.no_grad():
+            output = model(input_tensor.to(device))
+            prob = torch.softmax(output, dim=1)
+            conf, pred = torch.max(prob, 1)
+
+        res_label = "REAL" if pred.item() == 0 else "FAKE"
+        score = conf.item() * 100
+
+        # 결과 출력 및 JSON 저장
+        print(f" ▶ [{f}] 판정: {res_label} ({score:.2f}%)")
+        save_json_report(f, res_label, score)
+
+if __name__ == "__main__":
+    run_inference()import subprocess
+import sys
+import site
+
+# 1. 사용자 패키지 경로를 최우선으로 설정
+sys.path.insert(0, site.getusersitepackages())
+
+def initialize():
+    # 꼬인 OpenCV를 해결할 4.8 버전과 필수 라이브러리들
+    packages = [
+        "yt-dlp", 
+        "opencv-python-headless==4.8.0.74", 
+        "numpy<2"
+    ]
+    
+    print("🛠️ H200 서버 환경 최적화 시작...")
+    
+    try:
+        # --upgrade: 시스템의 고장난 버전을 무시하고 사용자 공간에 새로 설치
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install", "--user", "--upgrade"
+        ] + packages)
+        
+        print("\n✅ 모든 라이브러리 설치 완료!")
+        import cv2, yt_dlp, numpy as np
+        print(f"📍 OpenCV: {cv2.__version__} (Headless)")
+        print(f"📍 NumPy: {np.__version__}")
+        
+    except Exception as e:
+        print(f"❌ 오류 발생: {e}")
+
+if __name__ == "__main__":
+    initialize()import sys
+import os
+
+# 1. 사용자 로컬 경로 정의 및 라이브러리 충돌 방지 (기존 로직 유지)
+USER_SITE = os.path.expanduser("~/.local/lib/python3.10/site-packages")
+if USER_SITE not in sys.path:
+    sys.path.insert(0, USER_SITE)
+
+if 'cv2' in sys.modules:
+    del sys.modules['cv2']
+
+try:
+    import cv2
+    import numpy as np
+    import h5py
+    import random
+    from tqdm import tqdm
+    print(f"🚀 성공! OpenCV 경로: {cv2.__file__}")
+except Exception as e:
+    print(f"❌ 라이브러리 로드 실패: {e}")
+    sys.exit(1)
+
+# HDF5 파일 잠금 에러 방지
+os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
+
+def create_balanced_dataset(raw_path, out_path, max_samples_per_class=300, frames_per_video=16, img_size=224):
+    categories = ['real', 'fake']
+    all_tasks = []
+    
+    # [Step 1] 파일 목록 수집 및 클래스 균형 맞추기
+    for label_idx, cat in enumerate(categories):
+        cat_path = os.path.join(raw_path, cat)
+        if not os.path.exists(cat_path):
+            print(f"⚠️ 폴더 없음: {cat_path}")
+            continue
+            
+        all_files = [os.path.join(cat_path, f) for f in os.listdir(cat_path) if f.endswith('.mp4')]
+        num_to_sample = min(len(all_files), max_samples_per_class)
+        sampled_files = random.sample(all_files, num_to_sample)
+        
+        for f in sampled_files:
+            all_tasks.append((f, label_idx))
+        print(f"✅ {cat.upper()}: {num_to_sample}개 수집 완료")
+
+    # [Step 2] 전체 작업 랜덤 셔플 (학습/검증 분리 시 라벨 편향 방지)
+    random.shuffle(all_tasks)
+    total_requested = len(all_tasks)
+
+    # [Step 3] HDF5 파일 생성
+    with h5py.File(out_path, 'w') as hf:
+        # 가변 크기 대응을 위해 maxshape 설정
+        x_ds = hf.create_dataset('x', 
+                                 shape=(total_requested, frames_per_video, 3, img_size, img_size), 
+                                 maxshape=(total_requested, frames_per_video, 3, img_size, img_size),
+                                 dtype=np.float32)
+        y_ds = hf.create_dataset('y', 
+                                 shape=(total_requested,), 
+                                 maxshape=(total_requested,),
+                                 dtype=np.int64)
+        
+        saved_count = 0
+        print(f"🚀 총 {total_requested}개 영상 변환 시작...")
+        
+        for v_path, label in tqdm(all_tasks):
+            cap = cv2.VideoCapture(v_path)
+            total_f = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            
+            # 프레임이 부족한 영상은 과감히 스킵
+            if total_f < frames_per_video:
+                cap.release()
+                continue
+
+            frames = []
+            interval = total_f // frames_per_video
+            success = True
+            
+            for i in range(frames_per_video):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, i * interval)
+                ret, frame = cap.read()
+                if not ret: 
+                    success = False
+                    break
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame = cv2.resize(frame, (img_size, img_size))
+                # 0~1 스케일로 정규화
+                frames.append(frame.astype(np.float32) / 255.0)
+            cap.release()
+
+            if success and len(frames) == frames_per_video:
+                # (T, H, W, C) -> (T, C, H, W) 변환
+                video_data = np.transpose(np.array(frames), (0, 3, 1, 2))
+                x_ds[saved_count] = video_data
+                y_ds[saved_count] = label
+                saved_count += 1
+
+        # [Step 4] 핵심: 실제 저장된 개수만큼 데이터셋 크기 축소 (빈 공간 제거)
+        if saved_count < total_requested:
+            x_ds.resize((saved_count, frames_per_video, 3, img_size, img_size))
+            y_ds.resize((saved_count,))
+            print(f"\n⚠️ {total_requested - saved_count}개 영상이 프레임 에러로 제외되었습니다.")
+
+    print(f"✨ 최종 데이터셋 생성 완료: {out_path} (총 {saved_count}개 저장)")
+
+if __name__ == "__main__":
+    # 데이터셋 경로 및 크기 설정
+    RAW_DATA_DIR = "../data/raw"
+    OUTPUT_H5 = "../data/processed/dataset_balanced.h5"
+    
+    # [여기서 크기를 조절하세요]
+    MAX_SAMPLES_PER_CLASS = 300 
+    
+    create_balanced_dataset(RAW_DATA_DIR, OUTPUT_H5, max_samples_per_class=MAX_SAMPLES_PER_CLASS)import sys, os, cv2, h5py, random
+import numpy as np
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor
+
+# 1. 사용자(user) 권한으로 headless 버전 설치 (시스템 패키지를 무시하고 새로 설치)
+# pip install --user --upgrade opencv-python-headless
+
+# [1] 경로 및 환경 설정 (OpenCV 충돌 방지 로직 유지)
+USER_SITE = os.path.expanduser("~/.local/lib/python3.10/site-packages")
+if USER_SITE not in sys.path: sys.path.insert(0, USER_SITE)
+os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
+
+# [2] 개별 영상 처리 함수 (병렬/순차 공통 사용)
+def extract_frames_worker(task):
+    v_path, label = task
+    frames_per_video = 16
+    img_size = 224
+    
+    cap = cv2.VideoCapture(v_path)
+    total_f = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    if total_f < frames_per_video:
+        cap.release()
+        return None
+
+    frames = []
+    interval = total_f // frames_per_video
+    for i in range(frames_per_video):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, i * interval)
+        ret, frame = cap.read()
+        if not ret: break
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame = cv2.resize(frame, (img_size, img_size))
+        frames.append(frame.astype(np.float32) / 255.0)
+    cap.release()
+
+    if len(frames) == frames_per_video:
+        return (np.transpose(np.array(frames), (0, 3, 1, 2)), label)
+    return None
+
+# [3] 메인 데이터셋 생성 함수
+def create_dataset(raw_path, out_path, max_samples=300, parallel=True):
+    # Step 1: 태스크 수집 및 셔플
+    all_tasks = []
+    for label, cat in enumerate(['real', 'fake']):
+        cat_dir = os.path.join(raw_path, cat)
+        if not os.path.exists(cat_dir): continue
+        files = [os.path.join(cat_dir, f) for f in os.listdir(cat_dir) if f.endswith('.mp4')]
+        sampled = random.sample(files, min(len(files), max_samples))
+        for f in sampled:
+            all_tasks.append((f, label))
+    
+    random.shuffle(all_tasks)
+    total_requested = len(all_tasks)
+    processed_results = []
+
+    # Step 2: 처리 모드 분기 (병렬 vs 순차)
+    if parallel:
+        print(f"🚀 [병렬 모드] H200의 멀티코어를 가동합니다. (대상: {total_requested}개)")
+        with ProcessPoolExecutor() as executor:
+            results = list(tqdm(executor.map(extract_frames_worker, all_tasks), total=total_requested))
+            processed_results = [r for r in results if r is not None]
+    else:
+        print(f"🐢 [순차 모드] 한 장씩 꼼꼼하게 처리합니다. (대상: {total_requested}개)")
+        for task in tqdm(all_tasks):
+            res = extract_frames_worker(task)
+            if res:
+                processed_results.append(res)
+
+    # Step 3: HDF5 저장 (Zero-padding 방지)
+    saved_count = len(processed_results)
+    if saved_count == 0:
+        print("❌ 저장할 데이터가 없습니다. 원본 경로를 확인하세요.")
+        return
+
+    with h5py.File(out_path, 'w') as hf:
+        x_ds = hf.create_dataset('x', shape=(saved_count, 16, 3, 224, 224), dtype=np.float32)
+        y_ds = hf.create_dataset('y', shape=(saved_count,), dtype=np.int64)
+        
+        for i, (video, label) in enumerate(processed_results):
+            x_ds[i] = video
+            y_ds[i] = label
+
+    print(f"\n✨ 완료: {out_path} (총 {saved_count}개 저장)")
+
+# [4] 실행부
+if __name__ == "__main__":
+    # --- 설정 ---
+    RAW_PATH = "../data/raw"
+    OUT_PATH = "../data/processed/dataset_balanced.h5"
+    MAX_SAMPLES = 300
+    
+    # ⭐ 병렬 처리를 켜려면 True, 끄려면 False로 설정하세요.
+    USE_PARALLEL = True 
+    # ----------
+    
+    create_dataset(RAW_PATH, OUT_PATH, max_samples=MAX_SAMPLES, parallel=USE_PARALLEL)import os
+import subprocess
+import json
+from tqdm import tqdm
+
+# [설정] 변환할 폴더 경로
+TARGET_FOLDERS = ["../data/raw/real", "../data/raw/fake"]
+
+def get_video_codec(file_path):
+    """ffprobe를 사용하여 영상의 현재 코덱을 확인합니다."""
+    cmd = [
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name", "-of", "json", file_path
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+        return data['streams'][0]['codec_name']
+    except Exception:
+        return None
+
+def convert_to_h264(input_path):
+    """영상을 H.264 코덱으로 변환합니다."""
+    temp_path = input_path + ".temp.mp4"
+    # -c:v libx264: H.264 코덱 사용
+    # -crf 23: 화질 유지 (숫자가 낮을수록 고화질, 18~28 권장)
+    # -c:a copy: 오디오는 변환 없이 그대로 복사
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-c:v", "libx264", "-crf", "23", "-preset", "fast",
+        "-c:a", "copy", temp_path
+    ]
+    
+    try:
+        # 로그를 끄고 조용히 변환 진행
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        
+        # 변환 성공 시: 원본을 .bak로 백업하고 새 파일을 원본 이름으로 교체
+        bak_path = input_path + ".bak"
+        os.rename(input_path, bak_path)
+        os.rename(temp_path, input_path)
+        return True
+    except subprocess.CalledProcessError:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return False
+
+def main():
+    print("🚀 비디오 코덱 최적화 작업을 시작합니다 (H.264 표준화)")
+    
+    for folder in TARGET_FOLDERS:
+        if not os.path.exists(folder):
+            print(f"⚠️ 폴더를 찾을 수 없습니다: {folder}")
+            continue
+            
+        print(f"\n📂 대상 폴더: {folder}")
+        files = [f for f in os.listdir(folder) if f.endswith((".mp4", ".mkv", ".mov"))]
+        
+        for file in tqdm(files, desc="Processing"):
+            file_path = os.path.join(folder, file)
+            
+            # 1. 현재 코덱 확인
+            codec = get_video_codec(file_path)
+            
+            # 2. h264가 아니면 변환 (av1, vp9 등)
+            if codec and codec != "h264":
+                success = convert_to_h264(file_path)
+                if not success:
+                    print(f"❌ 변환 실패: {file}")
+            # else: 이미 h264면 건너뜀
+
+    print("\n✅ 모든 작업이 완료되었습니다!")
+    print("💡 원본 AV1 영상들은 '.bak' 확장자로 백업되었습니다.")
+    print("💡 이제 모든 영상은 OpenCV에서 문제 없이 읽힙니다.")
+
+if __name__ == "__main__":
+    main()import os
+import subprocess
+import json
+from concurrent.futures import ProcessPoolExecutor
+from tqdm import tqdm
+
+# [설정]
+TARGET_FOLDERS = ["../data/raw/real", "../data/raw/fake"]
+MAX_WORKERS = os.cpu_count() // 2  # 전체 CPU 코어의 절반 사용 (H200 최적화)
+
+def get_video_codec(file_path):
+    cmd = [
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name", "-of", "json", file_path
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+        return data['streams'][0]['codec_name']
+    except:
+        return None
+
+def process_single_video(file_info):
+    """개별 영상 하나를 검사하고 필요시 변환하는 함수 (병렬 실행됨)"""
+    folder, file = file_info
+    file_path = os.path.join(folder, file)
+    
+    codec = get_video_codec(file_path)
+    if codec and codec != "h264":
+        temp_path = file_path + ".temp.mp4"
+        cmd = [
+            "ffmpeg", "-y", "-i", file_path,
+            "-c:v", "libx264", "-crf", "23", "-preset", "veryfast",
+            "-c:a", "copy", temp_path
+        ]
+        try:
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            bak_path = file_path + ".bak"
+            os.rename(file_path, bak_path)
+            os.rename(temp_path, file_path)
+            return f"✅ 변환 완료: {file}"
+        except:
+            if os.path.exists(temp_path): os.remove(temp_path)
+            return f"❌ 변환 실패: {file}"
+    return None # 이미 h264인 경우
+
+def main():
+    print(f"🚀 H200 병렬 가공 시작 (프로세스 수: {MAX_WORKERS})")
+    
+    tasks = []
+    for folder in TARGET_FOLDERS:
+        if os.path.exists(folder):
+            files = [f for f in os.listdir(folder) if f.endswith((".mp4", ".mkv", ".mov"))]
+            for f in files:
+                tasks.append((folder, f))
+
+    # 병렬 처리 실행
+    results = []
+    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        # tqdm으로 전체 진행 상황 표시
+        for res in tqdm(executor.map(process_single_video, tasks), total=len(tasks), desc="Total Progress"):
+            if res:
+                results.append(res)
+
+    print("\n" + "="*50)
+    print(f"🏁 작업 완료! (총 {len(tasks)}개 중 {len(results)}개 변환 진행)")
+    print("="*50)
+
+if __name__ == "__main__":
+    main()import os
+import subprocess
+import json
+import shutil
+from concurrent.futures import ProcessPoolExecutor
+from tqdm import tqdm
+
+# ==========================================
+# ⚙️ 실전 판별용 경로 설정
+# ==========================================
+# 원본 수집 폴더 (collector_test.py가 저장한 곳)
+INPUT_DIR = "../data/test_raw/unlabeled" 
+
+# 가공 완료 폴더 (inference_production.py가 읽을 곳)
+OUTPUT_DIR = "../data/test_samples"
+
+# H200 최적화: 코어 절반 사용
+MAX_WORKERS = os.cpu_count() // 2 
+# ==========================================
+
+def get_video_codec(file_path):
+    cmd = [
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name", "-of", "json", file_path
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+        return data['streams'][0]['codec_name']
+    except:
+        return None
+
+def process_test_video(file_name):
+    """영상을 검사하고 규격에 맞춰 OUTPUT_DIR로 내보내는 함수"""
+    src_path = os.path.join(INPUT_DIR, file_name)
+    dst_path = os.path.join(OUTPUT_DIR, file_name)
+    
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    codec = get_video_codec(src_path)
+    
+    # 1. 이미 h264라면? 변환 없이 복사만 수행 (시간 단축)
+    if codec == "h264":
+        shutil.copy2(src_path, dst_path)
+        return f"🚚 복사 완료 (이미 h264): {file_name}"
+    
+    # 2. h264가 아니라면? 변환 수행
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-i", src_path,
+            "-c:v", "libx264", "-crf", "23", "-preset", "veryfast",
+            "-c:a", "copy", dst_path
+        ]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        return f"✅ 변환 완료: {file_name}"
+    except Exception as e:
+        return f"❌ 변환 실패: {file_name} ({e})"
+
+def main():
+    if not os.path.exists(INPUT_DIR):
+        print(f"⚠️ 입력 폴더가 없습니다: {INPUT_DIR}")
+        return
+
+    print(f"🚀 실전 데이터 가공 시작 (H200 Parallel)")
+    print(f"📂 경로: {INPUT_DIR} -> {OUTPUT_DIR}")
+    
+    files = [f for f in os.listdir(INPUT_DIR) if f.lower().endswith((".mp4", ".mkv", ".mov", ".avi"))]
+    
+    if not files:
+        print("📭 가공할 영상이 없습니다.")
+        return
+
+    results = []
+    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        for res in tqdm(executor.map(process_test_video, files), total=len(files), desc="Standardizing"):
+            results.append(res)
+
+    print("\n" + "="*50)
+    print(f"🏁 가공 완료! (총 {len(files)}개 처리 완료)")
+    print(f"📍 위치: {os.path.abspath(OUTPUT_DIR)}")
+    print("="*50)
+
+if __name__ == "__main__":
+    main()import sys, os, h5py, torch, random
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader, Subset
+from torchvision import models, transforms
+from tqdm import tqdm
+
+# ==========================================
+# ⚙️ 실험 제어판 (이 설정으로 성능 변화를 테스트하세요)
+# ==========================================
+AUG_LEVEL = "medium"  # 증강 강도: "low", "medium", "high"
+DATA_RATIO = 1.0      # 데이터 사용량: 0.1(10%) ~ 1.0(100%)
+BATCH_SIZE = 256      # H200 권장 배치
+LEARNING_RATE = 1e-4
+EPOCHS = 50
+NUM_WORKERS = 12      # CPU 코어 활용도 상향
+# ==========================================
+
+# [1] 데이터 증강 세부 설정 및 설명
+def get_augmentation(level):
+    """
+    - low: 좌우 반전만 적용 (가장 기초적인 변형)
+    - medium: 반전 + 색상 변조 + 미세 회전 (일반적인 딥페이크 학습용)
+    - high: 강한 변조 + 블러 추가 (모델이 극한의 상황을 견디게 함)
+    """
+    if level == "low":
+        return transforms.Compose([transforms.RandomHorizontalFlip(p=0.5)])
+    elif level == "medium":
+        return transforms.Compose([
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2), # 조명 차이 극복
+            transforms.RandomRotation(degrees=10)               # 머리 각도 극복
+        ])
+    elif level == "high":
+        return transforms.Compose([
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ColorJitter(brightness=0.4, contrast=0.4),
+            transforms.RandomRotation(degrees=20),
+            transforms.GaussianBlur(kernel_size=3)              # 화질 저하 상황 가정
+        ])
+    return None
+
+# [2] H200 최적화 데이터셋 클래스 (Lazy Loading 적용)
+class DeepfakeDataset(Dataset):
+    def __init__(self, h5_path, transform=None):
+        self.h5_path = h5_path
+        self.transform = transform
+        self.file = None # 워커 프로세스별로 별도 핸들링
+        with h5py.File(self.h5_path, 'r') as f:
+            self.length = len(f['y']) # 기존 'labels' -> 'y'로 수정
+
+    def __len__(self): return self.length
+
+    def __getitem__(self, idx):
+        if self.file is None: # 워커가 처음 실행될 때 파일 오픈 (I/O 가속)
+            self.file = h5py.File(self.h5_path, 'r')
+            
+        video = self.file['x'][idx] # 'videos' -> 'x'로 수정
+        label = self.file['y'][idx] # 'labels' -> 'y'로 수정
+        video = torch.from_numpy(video).float()
+        
+        if self.transform:
+            # 16프레임 전체에 동일한 랜덤 값을 적용하기 위해 시드 고정
+            seed = random.randint(0, 2**32)
+            transformed = []
+            for frame in video:
+                random.seed(seed); torch.manual_seed(seed)
+                transformed.append(self.transform(frame))
+            video = torch.stack(transformed)
+            
+        return video, label
+
+# [3] 모델 구조 (EfficientNet + GRU)
+class CNNGRUModel(nn.Module):
+    def __init__(self):
+        super(CNNGRUModel, self).__init__()
+        # Pretrained weight 사용으로 학습 초기 안정성 확보
+        self.backbone = models.efficientnet_b0(weights='DEFAULT')
+        self.backbone.classifier = nn.Identity()
+        self.rnn = nn.GRU(1280, 256, num_layers=2, batch_first=True)
+        self.fc = nn.Sequential(
+            nn.Linear(256, 128), nn.ReLU(), nn.Dropout(0.3), nn.Linear(128, 2)
+        )
+        
+    def forward(self, x):
+        b, s, c, h, w = x.shape
+        x = x.view(b * s, c, h, w)
+        features = self.backbone(x)
+        features = features.view(b, s, -1)
+        _, hidden = self.rnn(features)
+        return self.fc(hidden[-1])
+
+def train():
+    device = torch.device("cuda")
+    print(f"🚀 실험 시작 | 증강: {AUG_LEVEL} | 데이터량: {DATA_RATIO*100}%")
+
+    # 전체 데이터셋 로드 및 증강 적용
+    full_ds = DeepfakeDataset("../data/processed/dataset_balanced.h5", transform=get_augmentation(AUG_LEVEL))
+    
+    # 데이터 개수에 따른 성능 변화 테스트를 위한 샘플링
+    num_samples = int(len(full_ds) * DATA_RATIO)
+    indices = list(range(len(full_ds)))
+    random.shuffle(indices)
+    subset_ds = Subset(full_ds, indices[:num_samples])
+    
+    # 학습/검증 분할
+    t_size = int(0.8 * len(subset_ds))
+    v_size = len(subset_ds) - t_size
+    train_ds, val_ds = torch.utils.data.random_split(subset_ds, [t_size, v_size])
+
+    # H200 가속 옵션 적용 (pin_memory, prefetch)
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, 
+                              num_workers=NUM_WORKERS, pin_memory=True, prefetch_factor=2)
+    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pin_memory=True)
+
+    model = CNNGRUModel().to(device)
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+    criterion = nn.CrossEntropyLoss()
+    scaler = torch.amp.GradScaler('cuda') # Mixed Precision 가속기
+
+    best_acc = 0.0
+    for epoch in range(EPOCHS):
+        model.train()
+        train_loss = 0
+        for videos, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
+            videos, labels = videos.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+            optimizer.zero_grad(set_to_none=True)
+
+            with torch.amp.autocast('cuda'):
+                loss = criterion(model(videos), labels)
+
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            train_loss += loss.item()
+
+        # 검증 (Validation)
+        model.eval()
+        correct = 0
+        with torch.no_grad():
+            for vv, ll in val_loader:
+                vv, ll = vv.to(device), ll.to(device)
+                with torch.amp.autocast('cuda'):
+                    pred = model(vv).argmax(1)
+                correct += (pred == ll).sum().item()
+        
+        acc = correct / v_size * 100
+        print(f"📈 Loss: {train_loss/len(train_loader):.4f} | Val Acc: {acc:.2f}%")
+
+        if acc > best_acc:
+            best_acc = acc
+            torch.save(model.state_dict(), "../data/processed/v100_final_model.pth")
+            print(f"🌟 Best Saved! ({acc:.2f}%)")
+
+if __name__ == "__main__":
+    train()import sys, os, h5py, torch, random
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader, Subset
+from torchvision import models, transforms
+from tqdm import tqdm
+
+# ==========================================
+# ⚙️ 실험 및 하드웨어 최적화 제어판
+# ==========================================
+AUG_LEVEL = "medium"       # 증강 강도: "low", "medium", "high"
+DATA_RATIO = 1.0           # 데이터 사용량 (0.1 ~ 1.0)
+BATCH_SIZE = 64            # 물리적 배치: IndexMath 에러를 피하는 안전 수치
+ACCUMULATION_STEPS = 4      # 논리적 배치: 64 * 4 = 256 효과 창출
+LEARNING_RATE = 2e-4       # 256 배치에 최적화된 학습률
+EPOCHS = 50
+NUM_WORKERS = 0            # Bus error 방지를 위해 0 유지
+# ==========================================
+
+# [1] 데이터 증강 설정
+def get_augmentation(level):
+    if level == "low":
+        return transforms.Compose([transforms.RandomHorizontalFlip(p=0.5)])
+    elif level == "medium":
+        return transforms.Compose([
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2),
+            transforms.RandomRotation(degrees=10)
+        ])
+    elif level == "high":
+        return transforms.Compose([
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ColorJitter(brightness=0.4, contrast=0.4),
+            transforms.RandomRotation(degrees=20),
+            transforms.GaussianBlur(kernel_size=3)
+        ])
+    return None
+
+# [2] 데이터셋 클래스 (Lazy Loading 및 키 수정 완료)
+class DeepfakeDataset(Dataset):
+    def __init__(self, h5_path, transform=None):
+        self.h5_path = h5_path
+        self.transform = transform
+        self.file = None
+        with h5py.File(self.h5_path, 'r') as f:
+            self.length = len(f['y'])
+
+    def __len__(self): return self.length
+
+    def __getitem__(self, idx):
+        if self.file is None:
+            self.file = h5py.File(self.h5_path, 'r')
+            
+        video = self.file['x'][idx] # (16, 3, 224, 224)
+        label = self.file['y'][idx]
+        video = torch.from_numpy(video).float()
+        
+        if self.transform:
+            seed = random.randint(0, 2**32)
+            transformed = []
+            for frame in video:
+                random.seed(seed); torch.manual_seed(seed)
+                transformed.append(self.transform(frame))
+            video = torch.stack(transformed)
+        return video, label
+
+# [3] 모델 구조
+class CNNGRUModel(nn.Module):
+    def __init__(self):
+        super(CNNGRUModel, self).__init__()
+        self.backbone = models.efficientnet_b0(weights='DEFAULT')
+        self.backbone.classifier = nn.Identity()
+        self.rnn = nn.GRU(1280, 256, num_layers=2, batch_first=True)
+        self.fc = nn.Sequential(
+            nn.Linear(256, 128), nn.ReLU(), nn.Dropout(0.3), nn.Linear(128, 2)
+        )
+    def forward(self, x):
+        b, s, c, h, w = x.shape
+        x = x.view(b * s, c, h, w)
+        features = self.backbone(x)
+        features = features.view(b, s, -1)
+        _, hidden = self.rnn(features)
+        return self.fc(hidden[-1])
+
+# [4] 학습 함수
+def train():
+    device = torch.device("cuda")
+    print(f"🚀 H200 최종 모드 | 배치: {BATCH_SIZE}x{ACCUMULATION_STEPS}={BATCH_SIZE*ACCUMULATION_STEPS}")
+
+    full_ds = DeepfakeDataset("../data/processed/dataset_balanced.h5", transform=get_augmentation(AUG_LEVEL))
+    num_samples = int(len(full_ds) * DATA_RATIO)
+    indices = list(range(len(full_ds)))
+    random.shuffle(indices)
+    subset_ds = Subset(full_ds, indices[:num_samples])
+    
+    t_size = int(0.8 * len(subset_ds))
+    v_size = len(subset_ds) - t_size
+    train_ds, val_ds = torch.utils.data.random_split(subset_ds, [t_size, v_size])
+
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, 
+                              num_workers=NUM_WORKERS, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pin_memory=True)
+
+    model = CNNGRUModel().to(device)
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+    criterion = nn.CrossEntropyLoss()
+    scaler = torch.amp.GradScaler('cuda')
+
+    best_acc = 0.0
+    for epoch in range(EPOCHS):
+        model.train()
+        optimizer.zero_grad(set_to_none=True) # 누적을 위해 루프 밖 초기화
+        train_loss = 0
+        
+        for i, (videos, labels) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}")):
+            videos, labels = videos.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+
+            with torch.amp.autocast('cuda'):
+                outputs = model(videos)
+                # 손실을 누적 단계로 나누어 평균값 유지
+                loss = criterion(outputs, labels) / ACCUMULATION_STEPS
+
+            scaler.scale(loss).backward() # 그래디언트 누적
+
+            # 지정된 단계마다 업데이트 수행
+            if (i + 1) % ACCUMULATION_STEPS == 0:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+            
+            train_loss += loss.item() * ACCUMULATION_STEPS
+
+        # 검증
+        model.eval()
+        correct = 0
+        with torch.no_grad():
+            for vv, ll in val_loader:
+                vv, ll = vv.to(device), ll.to(device)
+                with torch.amp.autocast('cuda'):
+                    pred = model(vv).argmax(1)
+                correct += (pred == ll).sum().item()
+        
+        acc = (correct / v_size) * 100
+        print(f"📈 Loss: {train_loss/len(train_loader):.4f} | Val Acc: {acc:.2f}%")
+
+        if acc > best_acc:
+            best_acc = acc
+            torch.save(model.state_dict(), "../data/processed/v100_final_model.pth")
+            print(f"🌟 Best Saved! ({acc:.2f}%)")
+
+if __name__ == "__main__":
+    train()import sys, os, h5py, torch, random
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader, Subset
+from torchvision import models, transforms
+from tqdm import tqdm
+# NumPy 2.2.6을 지우고 1.x 대의 마지막 안정 버전으로 설치합니다.
+# pip install --user "numpy<2"
+
+# ==========================================
+# ⚙️ H200 하이퍼 파라미터 & 저장 설정
+# ==========================================
+AUG_LEVEL = "medium"
+DATA_RATIO = 1.0
+BATCH_SIZE = 64            # 물리적 배치 (IndexMath 에러 방지)
+ACCUMULATION_STEPS = 4     # 논리적 배치 (64 * 4 = 256 효과)
+LEARNING_RATE = 2e-4       # 256 배치에 최적화된 학습률
+EPOCHS = 50
+NUM_WORKERS = 0            # Bus error 방지
+
+# ⭐ 모델 저장 경로 수정 (H200의 위엄을 담아!)
+MODEL_SAVE_PATH = "../data/processed/h200_final_model.pth"
+# ==========================================
+
+# [1] 데이터 증강 (온라인 방식 - 실시간 변형)
+def get_augmentation(level):
+    if level == "low":
+        return transforms.Compose([transforms.RandomHorizontalFlip(p=0.5)])
+    elif level == "medium":
+        return transforms.Compose([
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2),
+            transforms.RandomRotation(degrees=10)
+        ])
+    return None
+
+# [2] 데이터셋 클래스 (Lazy Loading 및 x, y 키 적용)
+class DeepfakeDataset(Dataset):
+    def __init__(self, h5_path, transform=None):
+        self.h5_path = h5_path
+        self.transform = transform
+        self.file = None
+        with h5py.File(self.h5_path, 'r') as f:
+            self.length = len(f['y'])
+
+    def __len__(self): return self.length
+
+    def __getitem__(self, idx):
+        if self.file is None:
+            self.file = h5py.File(self.h5_path, 'r')
+        video = self.file['x'][idx]
+        label = self.file['y'][idx]
+        video = torch.from_numpy(video).float()
+        if self.transform:
+            seed = random.randint(0, 2**32)
+            transformed = []
+            for frame in video:
+                random.seed(seed); torch.manual_seed(seed)
+                transformed.append(self.transform(frame))
+            video = torch.stack(transformed)
+        return video, label
+
+# [3] 모델 구조 (EfficientNet-B0 + GRU)
+class CNNGRUModel(nn.Module):
+    def __init__(self):
+        super(CNNGRUModel, self).__init__()
+        self.backbone = models.efficientnet_b0(weights='DEFAULT')
+        self.backbone.classifier = nn.Identity()
+        self.rnn = nn.GRU(1280, 256, num_layers=2, batch_first=True)
+        self.fc = nn.Sequential(
+            nn.Linear(256, 128), nn.ReLU(), nn.Dropout(0.3), nn.Linear(128, 2)
+        )
+    def forward(self, x):
+        b, s, c, h, w = x.shape
+        x = x.view(b * s, c, h, w)
+        features = self.backbone(x)
+        features = features.view(b, s, -1)
+        _, hidden = self.rnn(features)
+        return self.fc(hidden[-1])
+
+# [4] 학습 메인 함수
+def train():
+    device = torch.device("cuda")
+    print(f"🔥 H200 모드 가동 | 저장명: {os.path.basename(MODEL_SAVE_PATH)}")
+
+    full_ds = DeepfakeDataset("../data/processed/dataset_balanced.h5", transform=get_augmentation(AUG_LEVEL))
+    num_samples = int(len(full_ds) * DATA_RATIO)
+    indices = list(range(len(full_ds)))
+    random.shuffle(indices)
+    subset_ds = Subset(full_ds, indices[:num_samples])
+    
+    t_size = int(0.8 * len(subset_ds))
+    v_size = len(subset_ds) - t_size
+    train_ds, val_ds = torch.utils.data.random_split(subset_ds, [t_size, v_size])
+
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, pin_memory=True)
+
+    model = CNNGRUModel().to(device)
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+    criterion = nn.CrossEntropyLoss()
+    scaler = torch.amp.GradScaler('cuda')
+
+    best_acc = 0.0
+    for epoch in range(EPOCHS):
+        model.train()
+        optimizer.zero_grad(set_to_none=True)
+        train_loss = 0
+        num_batches = len(train_loader)
+        
+        for i, (videos, labels) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}")):
+            videos, labels = videos.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+
+            with torch.amp.autocast('cuda'):
+                outputs = model(videos)
+                loss = criterion(outputs, labels) / ACCUMULATION_STEPS
+
+            scaler.scale(loss).backward()
+            train_loss += loss.item() * ACCUMULATION_STEPS
+
+            # ⭐ [개선] 정해진 단계가 찼거나, 데이터로더의 마지막 배치일 때 업데이트
+            if (i + 1) % ACCUMULATION_STEPS == 0 or (i + 1) == num_batches:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+
+        # 검증 (Validation)
+        model.eval()
+        correct = 0
+        with torch.no_grad():
+            for vv, ll in val_loader:
+                vv, ll = vv.to(device), ll.to(device)
+                with torch.amp.autocast('cuda'):
+                    pred = model(vv).argmax(1)
+                correct += (pred == ll).sum().item()
+        
+        acc = (correct / v_size) * 100
+        print(f"📈 Loss: {train_loss/num_batches:.4f} | Val Acc: {acc:.2f}%")
+
+        if acc > best_acc:
+            best_acc = acc
+            torch.save(model.state_dict(), MODEL_SAVE_PATH)
+            print(f"🌟 Best Model Saved! ({acc:.2f}%)")
+
+if __name__ == "__main__":
+    train()# 프레임별 신뢰도 시각화
+import os
+import cv2
+import torch
+import torch.nn as nn
+import numpy as np
+import matplotlib.pyplot as plt
+from torchvision import models
+
+# HDF5/환경 설정
+os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
+import sys
+user_site = os.path.expanduser("~/.local/lib/python3.10/site-packages")
+if user_site not in sys.path:
+    sys.path.insert(0, user_site)
+
+# 1. 모델 정의 (학습 시와 동일)
+class CNNGRUModel(nn.Module):
+    def __init__(self):
+        super(CNNGRUModel, self).__init__()
+        self.backbone = models.efficientnet_b0()
+        self.feature_dim = self.backbone.classifier[1].in_features
+        self.backbone.classifier = nn.Identity()
+        self.rnn = nn.GRU(input_size=self.feature_dim, hidden_size=256, num_layers=2, batch_first=True)
+        self.fc = nn.Linear(256, 2)
+        
+    def forward(self, x):
+        batch_size, seq_len, c, h, w = x.shape
+        x = x.view(batch_size * seq_len, c, h, w)
+        features = self.backbone(x)
+        features = features.view(batch_size, seq_len, -1)
+        _, hidden = self.rnn(features)
+        return self.fc(hidden[-1])
+
+def analyze_video_flow(video_path, model_path, window_size=16, step=8):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = CNNGRUModel().to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+
+    cap = cv2.VideoCapture(video_path)
+    all_frames = []
+    while True:
+        ret, frame = cap.read()
+        if not ret: break
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame = cv2.resize(frame, (224, 224))
+        all_frames.append(frame.astype(np.float32) / 255.0)
+    cap.release()
+
+    total_f = len(all_frames)
+    probabilities = []
+    timestamps = []
+
+    print(f"🧐 분석 중: {os.path.basename(video_path)} (총 {total_f} 프레임)")
+
+    # 슬라이딩 윈도우 방식으로 구간별 확률 추출
+    for i in range(0, total_f - window_size, step):
+        window = all_frames[i : i + window_size]
+        input_tensor = torch.from_numpy(np.transpose(window, (0, 3, 1, 2))).unsqueeze(0).to(device)
+        
+        with torch.no_grad():
+            output = model(input_tensor)
+            prob = torch.softmax(output, dim=1)[0][1].item() # FAKE일 확률
+            probabilities.append(prob)
+            timestamps.append(i + window_size//2) # 윈도우 중앙점 기록
+
+    # 시각화
+    plt.figure(figsize=(15, 6))
+    
+    # 1. 상단: 대표 프레임들 나열
+    num_samples = 5
+    for i in range(num_samples):
+        idx = int(i * (total_f / num_samples))
+        plt.subplot(2, num_samples, i + 1)
+        plt.imshow(all_frames[idx])
+        plt.title(f"Frame {idx}")
+        plt.axis('off')
+
+    # 2. 하단: 확률 그래프
+    plt.subplot(2, 1, 2)
+    plt.plot(timestamps, probabilities, color='red', marker='o', linestyle='-', markersize=4)
+    plt.axhline(y=0.5, color='gray', linestyle='--') # 0.5 기준선
+    plt.ylim(0, 1.1)
+    plt.xlabel('Frame Number')
+    plt.ylabel('Fake Probability')
+    plt.title(f'Analysis: {os.path.basename(video_path)}')
+    plt.grid(True, alpha=0.3)
+
+    save_name = f"analysis_{os.path.basename(video_path)}.png"
+    plt.tight_layout()
+    plt.savefig(f"../data/processed/{save_name}")
+    print(f"✅ 분석 그래프 저장 완료: data/processed/{save_name}")
+
+if __name__ == "__main__":
+    MODEL = "../data/processed/v100_baseline.pth"
+    # 오답이 나왔던 real/video_0004.mp4를 넣어보세요
+    TARGET = "../data/raw/real/video_0004.mp4" 
+    
+    if os.path.exists(TARGET):
+        analyze_video_flow(TARGET, MODEL)

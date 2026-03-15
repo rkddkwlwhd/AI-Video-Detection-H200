@@ -40,3 +40,6 @@ tokens.json
 secrets.py
 
 *.json
+*.wav
+*.tgz
+ngrok

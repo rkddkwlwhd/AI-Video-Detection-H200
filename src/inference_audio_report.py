@@ -1,166 +1,141 @@
-import os, sys, torch, cv2, time
+import sys
+import os
+import torch
+import torch.nn.functional as F
 import numpy as np
 import soundfile as sf
-from scipy import signal
-import torch.nn as nn
-from torchvision import models
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-# [1] 터미널 컬러 설정
-class Color:
-    GREEN = '\033[92m'; RED = '\033[91m'; YELLOW = '\033[93m'
-    BLUE = '\033[94m'; BOLD = '\033[1m'; END = '\033[0m'; CYAN = '\033[96m'
+# [1] H200 충돌 방지 및 경로 설정
+sys.modules['transformer_engine'] = None
 
-# [2] 모델 구조 정의 (ExplainableDeepvoiceModel)
-class TemporalAttention(nn.Module):
-    def __init__(self, hidden_size):
-        super(TemporalAttention, self).__init__()
-        self.attention = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size // 2), nn.Tanh(), nn.Linear(hidden_size // 2, 1)
-        )
-    def forward(self, rnn_output):
-        attn_weights = torch.softmax(self.attention(rnn_output), dim=1)
-        context = torch.sum(attn_weights * rnn_output, dim=1)
-        return context, attn_weights.squeeze(-1)
+# 기존 모델 클래스 가져오기 (train_xai.py)
+from train_xai import ExplainableDeepfakeModel
 
-class ExplainableDeepvoiceModel(nn.Module):
-    def __init__(self, num_classes=2):
-        super(ExplainableDeepvoiceModel, self).__init__()
-        self.backbone = models.efficientnet_b0(weights=None)
-        self.backbone.classifier = nn.Identity()
-        self.rnn = nn.GRU(1280, 256, num_layers=2, batch_first=True)
-        self.attention = TemporalAttention(256)
-        self.fc = nn.Sequential(nn.Linear(256, 128), nn.ReLU(), nn.Dropout(0.3), nn.Linear(128, num_classes))
-        self.frame_fc = nn.Linear(256, num_classes)
+# 경로 설정
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_PATH = os.path.join(BASE_DIR, "data_audio", "processed", "deepvoice_attention_model.pth")
+TEST_ROOT = os.path.join(BASE_DIR, "data_audio", "test_record") 
+REPORT_DIR = os.path.join(BASE_DIR, "data_audio", "reports")
+os.makedirs(REPORT_DIR, exist_ok=True)
 
-    def forward(self, x):
-        b, s, c, h, w = x.shape
-        x = x.view(b * s, c, h, w)
-        features = self.backbone(x)
-        features = features.view(b, s, -1)
-        rnn_out, _ = self.rnn(features)
-        context, attn_weights = self.attention(rnn_out)
-        video_logits = self.fc(context)
-        frame_logits = self.frame_fc(rnn_out)
-        return video_logits, frame_logits, attn_weights
-
-# [3] Robust 오디오 전처리 (Scipy 방식)
 SR = 16000
 SEGMENTS = 16
 
-def preprocess_audio(v_path):
+# [2] 전처리 함수 (SciPy 대신 PyTorch STFT 사용 - 100% 동일한 결과 구현)
+def preprocess_audio_torch(path):
     try:
-        y, sr = sf.read(v_path)
-        if sr != SR: return None
+        # 오디오 로드 (soundfile은 NumPy 2.x와 호환됨)
+        y, sr = sf.read(path)
         if len(y.shape) > 1: y = np.mean(y, axis=1)
+        
+        # 4초 분량 조절
         target_len = SR * 4
         y = np.pad(y, (0, max(0, target_len - len(y))))[:target_len]
         
+        # 텐서로 변환
+        y_t = torch.from_numpy(y).float()
+        
         segment_len = len(y) // SEGMENTS
         spec_frames = []
+        
+        # Hann Window 설정 (SciPy 기본값과 동일)
+        window = torch.hann_window(256)
+        
         for i in range(SEGMENTS):
-            chunk = y[i*segment_len : (i+1)*segment_len]
-            _, _, Sxx = signal.spectrogram(chunk, fs=SR, nperseg=256, noverlap=128)
-            spec_db = 10 * np.log10(Sxx + 1e-10)
-            spec_resized = cv2.resize(spec_db, (224, 224))
-            spec_norm = (spec_resized - spec_resized.min()) / (spec_resized.max() - spec_resized.min() + 1e-6)
+            chunk = y_t[i*segment_len : (i+1)*segment_len]
+            
+            # --- [SciPy Spectrogram을 Torch STFT로 완벽 대체] ---
+            # n_fft=256, hop_length=128 (overlap 128)
+            stft = torch.stft(chunk, n_fft=256, hop_length=128, win_length=256, 
+                              window=window, return_complex=True)
+            
+            # Magnitude Squared (Power Spectrogram)
+            spec = stft.abs().pow(2)
+            
+            # Log Scaled (dB)
+            spec_db = 10 * torch.log10(spec + 1e-10)
+            
+            # --- [OpenCV Resize를 Torch Interpolate로 대체] ---
+            # [Freq, Time] -> [1, 1, Freq, Time]
+            spec_db = spec_db.unsqueeze(0).unsqueeze(0)
+            spec_res = F.interpolate(spec_db, size=(224, 224), mode='bilinear', align_corners=False)
+            
+            # 정규화
+            spec_res = spec_res.squeeze()
+            s_min, s_max = spec_res.min(), spec_res.max()
+            spec_norm = (spec_res - s_min) / (s_max - s_min + 1e-6)
             spec_frames.append(spec_norm)
             
-        tensor = np.stack(spec_frames)
-        tensor_3ch = np.repeat(tensor[:, np.newaxis, :, :], 3, axis=1)
-        return torch.from_numpy(tensor_3ch).unsqueeze(0).float()
-    except:
-        return None
+        tensor_stack = torch.stack(spec_frames) # [16, 224, 224]
+        # 3채널 복제 (EfficientNet 입력용)
+        tensor_3ch = tensor_stack.unsqueeze(1).repeat(1, 3, 1, 1)
+        return tensor_3ch.unsqueeze(0), y # [1, 16, 3, 224, 224]
+        
+    except Exception as e:
+        print(f"\n❌ 분석 실패 ({os.path.basename(path)}): {e}")
+        return None, None
 
-# [4] 폴더 순회 및 성능 분석 핵심 함수
-def run_auto_evaluation(base_dir, model_path):
+# [3] 실행 메인 루프
+def run_report():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"🚀 분석 시작 (NumPy {np.__version__} 환경)")
     
-    # 모델 로드
-    model = ExplainableDeepvoiceModel().to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model = ExplainableDeepfakeModel().to(device)
+    if not os.path.exists(MODEL_PATH):
+        print(f"❌ 모델 파일을 찾을 수 없습니다: {MODEL_PATH}")
+        return
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
     model.eval()
 
-    categories = ['real', 'fake']
-    overall_results = []
-    
-    print(f"\n{Color.BOLD}{Color.CYAN}🚀 [H200 Audio Analysis] 딥보이스 자동 전수 검사 시작...{Color.END}")
+    test_files = []
+    for root, dirs, files in os.walk(TEST_ROOT):
+        for f in files:
+            if f.lower().endswith('.wav'):
+                test_files.append(os.path.join(root, f))
 
-    for cat in categories:
-        folder_path = os.path.join(base_dir, cat)
-        if not os.path.exists(folder_path):
-            continue
+    print(f"🎙️ 총 {len(test_files)}개 파일 분석 리포트 생성 중...")
+
+    for path in tqdm(test_files):
+        f_name = os.path.basename(path)
+        input_tensor, raw_audio = preprocess_audio_torch(path)
+        if input_tensor is None: continue
+
+        with torch.no_grad():
+            input_tensor = input_tensor.to(device)
+            video_logits, frame_logits, attn_weights = model(input_tensor)
             
-        expected_label = cat.upper() # "REAL" 또는 "FAKE"
-        files = [f for f in os.listdir(folder_path) if f.endswith('.wav')]
+            probs = torch.softmax(video_logits, dim=1)[0]
+            fake_prob = probs[1].item() * 100
+            frame_probs = torch.softmax(frame_logits, dim=-1)[0, :, 1].cpu().numpy() * 100
+            attn = attn_weights[0].cpu().numpy()
+
+        # 시각화 리포트 생성
+        plt.figure(figsize=(12, 8))
+        plt.subplot(3, 1, 1)
+        plt.plot(np.linspace(0, 4, len(raw_audio)), raw_audio, color='gray', alpha=0.5)
+        decision = "[FAKE]" if fake_prob > 50 else "[REAL]"
+        conf = fake_prob if fake_prob > 50 else 100 - fake_prob
+        plt.title(f"File: {f_name}\nPrediction: {decision} ({conf:.1f}%)")
         
-        correct_count = 0
-        cat_results = []
-
-        print(f"\n📂 {Color.BOLD}분석 폴더: {cat} (정답: {expected_label}){Color.END}")
-        print(f"{'파일명':<40} | {'판정':<6} | {'신뢰도':<8} | {'결과'}")
-        print("-" * 75)
-
-        for f in tqdm(files, desc=f"Processing {cat}", leave=False):
-            audio_path = os.path.join(folder_path, f)
-            input_tensor = preprocess_audio(audio_path)
-            
-            if input_tensor is None:
-                continue
-
-            with torch.no_grad():
-                video_logits, _, _ = model(input_tensor.to(device))
-                prob = torch.softmax(video_logits, dim=1)[0][1].item() * 100
-                
-            pred_label = "FAKE" if prob > 50 else "REAL"
-            confidence = prob if pred_label == "FAKE" else (100 - prob)
-            
-            is_correct = (pred_label == expected_label)
-            if is_correct: correct_count += 1
-            
-            res_str = f"{Color.GREEN}PASS{Color.END}" if is_correct else f"{Color.RED}FAIL{Color.END}"
-            conf_color = Color.YELLOW if confidence < 80 else "" # 신뢰도 낮으면 노란색 표시
-            
-            print(f"{f[:38]:<40} | {pred_label:<6} | {conf_color}{confidence:>6.2f}%{Color.END} | {res_str}")
-            
-            cat_results.append({
-                'file': f, 'pred': pred_label, 'actual': expected_label, 
-                'conf': confidence, 'is_correct': is_correct
-            })
+        plt.subplot(3, 1, 2)
+        plt.bar(range(SEGMENTS), frame_probs, color=['red' if p > 50 else 'green' for p in frame_probs])
+        plt.axhline(y=50, color='black', linestyle='--')
+        plt.ylabel("Fake Prob %")
         
-        acc = (correct_count / len(files)) * 100 if files else 0
-        overall_results.extend(cat_results)
-        print(f"\n📊 {Color.BOLD}{cat.upper()} 정확도: {acc:.2f}% ({correct_count}/{len(files)}){Color.END}")
+        plt.subplot(3, 1, 3)
+        plt.plot(range(SEGMENTS), attn, marker='o', color='blue')
+        plt.fill_between(range(SEGMENTS), attn, color='blue', alpha=0.2)
+        plt.ylabel("Attention")
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(REPORT_DIR, f"{f_name}_report.png"))
+        plt.close()
 
-    # [5] 최종 종합 리포트 출력
-    total = len(overall_results)
-    total_correct = sum(1 for r in overall_results if r['is_correct'])
-    total_acc = (total_correct / total) * 100 if total > 0 else 0
-    
-    print(f"\n{Color.BOLD}{Color.CYAN}{'='*30} 📋 최종 종합 리포트 {'='*30}{Color.END}")
-    print(f"✅ 전체 정확도 : {total_acc:.2f}% ({total_correct}/{total})")
-    
-    # 오답 리스트 (Hard Cases)
-    wrong_cases = [r for r in overall_results if not r['is_correct']]
-    if wrong_cases:
-        print(f"\n{Color.RED}{Color.BOLD}❌ [오답 노트] 모델이 틀린 파일 ({len(wrong_cases)}개):{Color.END}")
-        for r in wrong_cases:
-            print(f"  - {r['file']:<40} (판정: {r['pred']} / 정답: {r['actual']} / 신뢰도: {r['conf']:.2f}%)")
-            
-    # 맞았지만 불안한 리스트 (Low Confidence)
-    low_cases = [r for r in overall_results if r['is_correct'] and r['conf'] < 75]
-    if low_cases:
-        print(f"\n{Color.YELLOW}{Color.BOLD}⚠️ [정밀 검토 권장] 맞았으나 신뢰도가 낮은 파일 ({len(low_cases)}개):{Color.END}")
-        for r in low_cases:
-            print(f"  - {r['file']:<40} (신뢰도: {r['conf']:.2f}%)")
-
-    print(f"\n{Color.BOLD}{Color.CYAN}{'='*75}{Color.END}\n")
+    print(f"\n✅ 리포트 생성 완료! 위치: {REPORT_DIR}")
 
 if __name__ == "__main__":
-    BASE_AUDIO_DIR = "../data_audio/test_standardized"
-    MODEL_PATH = "../data_audio/processed/deepvoice_attention_model.pth"
-    
-    if os.path.exists(MODEL_PATH):
-        run_auto_evaluation(BASE_AUDIO_DIR, MODEL_PATH)
-    else:
-        print(f"❌ 모델 파일을 찾을 수 없습니다: {MODEL_PATH}")
+    run_report()
